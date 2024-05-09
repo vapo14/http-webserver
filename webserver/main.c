@@ -41,9 +41,10 @@ int main(int argc, const char * argv[]) {
     }
     
     
-    int sockfd;     // socket file descriptor
+    int sockfd = -1;     // socket file descriptor
     // iterate through the linked list until we successfully bind
-    for (struct addrinfo* pointer = servinfo; pointer != NULL; pointer = pointer->ai_next) {
+    struct addrinfo* pointer;
+    for (pointer = servinfo; pointer != NULL; pointer = pointer->ai_next) {
         
         sockfd = socket(pointer->ai_family, pointer->ai_socktype, pointer->ai_protocol);
         if (sockfd == -1) {
@@ -51,5 +52,49 @@ int main(int argc, const char * argv[]) {
             continue;
         }
         
+        int bindResult = bind(sockfd, pointer->ai_addr, pointer->ai_addrlen);
+        if (bindResult == -1) {
+            perror("bind error");
+            continue;
+        }
+        
+        int reuseAddress = 1;
+        // reuse port and prevent the "Address already in use" error message
+        if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &reuseAddress, sizeof reuseAddress) == -1) {
+            perror("error while setting socket options");
+            exit(1);
+        }
+        
+        break;
     }
+    
+    freeaddrinfo(servinfo);
+    
+    if (pointer == NULL) {
+        fprintf(stderr, "server: failed to bind\n");
+        exit(1);
+    }
+    
+    // listen on given address, backlog is the number of connections allowed on the incoming queue
+    int listenResult = listen(sockfd, BACKLOG);
+    if (listenResult == -1) {
+        perror("error while listening");
+        exit(1);
+    }
+    
+    // accept and handle a connection
+    struct sockaddr_storage incomingAddr;
+    socklen_t addrLen = sizeof incomingAddr;
+    int connsockfd = accept(sockfd, (struct sockaddr *)&incomingAddr, &addrLen);
+    if (connsockfd == -1) {
+        perror("could not accept connection");
+        exit(1);
+    }
+    
+    char* response = "HTTP/1.1 200 OK\r\nContent-Type: text\r\n\r\nHello World\n";
+    ssize_t resLen = strlen(response);
+    ssize_t bytes_sent = send(connsockfd, response, resLen, 0);
+    
+    close(connsockfd);
+    close(sockfd);
 }
